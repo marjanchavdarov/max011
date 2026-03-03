@@ -89,7 +89,7 @@ def extract(img_b64, store, page_num):
         return result, fine_print
     except Exception as e:
         print("Gemini error page " + str(page_num) + ": " + str(e))
-print("Raw response: " + str(r.text[:500]))
+        print("Raw response: " + str(r.text[:500]))
         return [], None
 
 def db_headers():
