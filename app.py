@@ -34,11 +34,14 @@ def upload():
     valid_until = request.form.get("valid_until", "").strip()
     file_data = f.read() if f else None
     filename = f.filename if f else ""
+    sn = store
+    vf = valid_from  
+    vu = valid_until
+    fd = file_data
+    fn = filename
 
     def stream():
         try:
-            f = file_data
-            store_name = store
             vf = valid_from
             vu = valid_until
 
