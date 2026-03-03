@@ -89,6 +89,7 @@ def extract(img_b64, store, page_num):
         return result, fine_print
     except Exception as e:
         print("Gemini error page " + str(page_num) + ": " + str(e))
+print("Raw response: " + str(r.text[:500]))
         return [], None
 
 def db_headers():
@@ -124,6 +125,8 @@ def save_products(products, store, page_num, page_url, catalogue_name, valid_fro
         return 0
     r = requests.post(SUPABASE_URL + "/rest/v1/products", headers={**db_headers(), "Prefer": "return=minimal"}, json=records)
     return len(records) if r.status_code in [200, 201] else 0
+    print("Gemini status: " + str(r.status_code))
+    print("Gemini response: " + str(r.text[:500]))
 
 def save_catalogue(store, catalogue_name, valid_from, valid_until, fine_print, pages, products_count):
     requests.post(SUPABASE_URL + "/rest/v1/catalogues", headers={**db_headers(), "Prefer": "resolution=merge-duplicates,return=minimal"}, json={"store": store, "catalogue_name": catalogue_name, "valid_from": valid_from, "valid_until": valid_until, "fine_print": fine_print, "pages": pages, "products_count": products_count})
