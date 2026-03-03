@@ -71,7 +71,7 @@ def upload():
     return app.response_class(stream(), mimetype="application/x-ndjson")
 
 def extract(img_b64, store, page_num):
-    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + GEMINI_API_KEY
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=" + GEMINI_API_KEY
     prompt = ("Page " + str(page_num) + " of " + store + " catalogue. Extract ALL products with prices. Also extract any fine print or disclaimers. Return ONLY a JSON array: [{\"product\":\"name\",\"brand\":\"brand or null\",\"quantity\":\"250g or null\",\"original_price\":\"2.99 or null\",\"sale_price\":\"1.99\",\"discount_percent\":\"33% or null\",\"valid_until\":\"08.03.2026. or null\",\"category\":\"category\",\"subcategory\":\"subcategory\",\"fine_print\":\"disclaimer or null\"}] Categories: Meso i riba, Mlijecni proizvodi, Kruh i pekarski, Voce i povrce, Pice, Grickalice i slatkisi, Konzervirana hrana, Kozmetika i higijena, Kucanstvo i ciscenje, Alati i gradnja, Dom i vrt, Elektronika, Odjeca i obuca, Kucni ljubimci, Zdravlje i ljekarna, Ostalo. If no products return: []")
     body = {"contents": [{"parts": [{"inline_data": {"mime_type": "image/jpeg", "data": img_b64}}, {"text": prompt}]}]}
     try:
