@@ -26,6 +26,9 @@ button:disabled{background:#444;color:#888;cursor:not-allowed}
 <button id="btn" onclick="go()">Process</button>
 <div id="log">Ready.</div>
 <script>
+var pollInterval = null;
+var lastLogLen = 0;
+
 function go() {
   var f = document.getElementById("f").files[0];
   var s = document.getElementById("s").value;
@@ -42,52 +45,47 @@ function go() {
   var btn = document.getElementById("btn");
   btn.disabled = true;
   var log = document.getElementById("log");
-  log.textContent = "Uploading...\n";
+  log.textContent = "Uploading file...\n";
   var fd = new FormData();
   fd.append("file", f);
   fd.append("store", s);
   fd.append("valid_from", vf);
   fd.append("valid_until", vu);
   fetch("/upload", { method: "POST", body: fd }).then(function(r) {
-    var reader = r.body.getReader();
-    var dec = new TextDecoder();
-    var buf = "";
-    function pump() {
-      reader.read().then(function(res) {
-        if (res.done) return;
-        buf += dec.decode(res.value, { stream: true });
-        var lines = buf.split("\n");
-        buf = lines.pop();
-        lines.forEach(function(line) {
-          if (!line.trim()) return;
-          try {
-            var d = JSON.parse(line);
-            if (d.type == "start") log.textContent += "Pages: " + d.pages + "\n";
-            else if (d.type == "page") {
-              log.textContent += "Page " + d.page + "/" + d.total_pages + ": " + d.products_found + " products\n";
-              log.scrollTop = 9999;
-            }
-            else if (d.type == "done") {
-              log.textContent += "\nDONE! " + d.products + " products saved!\n";
-              btn.disabled = false;
-              btn.textContent = "Process Another";
-            }
-            else if (d.type == "error") {
-              log.textContent += "ERROR: " + d.message + "\n";
-              btn.disabled = false;
-            }
-            else if (d.type == "page_error") {
-              log.textContent += "Page " + d.page + " error: " + d.error + "\n";
-            }
-          } catch(e) {}
-        });
-        pump();
-      });
+    return r.json();
+  }).then(function(data) {
+    if (data.error) {
+      log.textContent += "ERROR: " + data.error + "\n";
+      btn.disabled = false;
+      return;
     }
-    pump();
+    log.textContent += "Processing started! Job: " + data.job_id + "\n";
+    lastLogLen = 0;
+    pollInterval = setInterval(function() { poll(data.job_id); }, 3000);
   }).catch(function(e) {
-    log.textContent += "ERROR: " + e.message;
+    log.textContent += "ERROR: " + e.message + "\n";
     btn.disabled = false;
+  });
+}
+
+function poll(job_id) {
+  fetch("/status/" + job_id).then(function(r) {
+    return r.json();
+  }).then(function(data) {
+    var log = document.getElementById("log");
+    var newLines = data.log.slice(lastLogLen);
+    newLines.forEach(function(line) {
+      log.textContent += line + "\n";
+    });
+    lastLogLen = data.log.length;
+    log.scrollTop = 9999;
+    if (data.done) {
+      clearInterval(pollInterval);
+      document.getElementById("btn").disabled = false;
+      document.getElementById("btn").textContent = "Process Another";
+    }
+  }).catch(function(e) {
+    console.log("Poll error:", e);
   });
 }
 </script>
