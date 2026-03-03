@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>katalog.ai Upload</title>
+<style>
+body{font-family:monospace;background:#111;color:#eee;padding:40px;max-width:700px;margin:0 auto}
+h1{color:#00ff88}
+input{background:#222;border:1px solid #444;color:#eee;padding:8px;width:100%;margin:5px 0 15px 0;font-family:monospace;display:block;box-sizing:border-box}
+label{color:#aaa;font-size:13px}
+button{background:#00ff88;color:#000;border:none;padding:15px;font-weight:bold;font-size:16px;cursor:pointer;width:100%;margin-top:10px}
+button:disabled{background:#444;color:#888;cursor:not-allowed}
+#log{background:#000;padding:20px;margin-top:20px;min-height:100px;font-size:12px;line-height:1.8;white-space:pre-wrap}
+</style>
+</head>
+<body>
+<h1>katalog.ai - Upload</h1>
+<label>PDF File:</label>
+<input type="file" id="f">
+<label>Store:</label>
+<input type="text" id="s" placeholder="Lidl">
+<label>Valid From (YYYY-MM-DD):</label>
+<input type="text" id="vf" placeholder="2026-03-02">
+<label>Valid Until (empty = 14 days auto):</label>
+<input type="text" id="vu" placeholder="2026-03-16">
+<button id="btn" onclick="go()">Process</button>
+<div id="log">Ready.</div>
+<script>
+function go() {
+  var f = document.getElementById("f").files[0];
+  var s = document.getElementById("s").value;
+  var vf = document.getElementById("vf").value;
+  var vu = document.getElementById("vu").value;
+  if (!f) { alert("Pick a file"); return; }
+  if (!s) { alert("Enter store"); return; }
+  if (!vf) { alert("Enter date"); return; }
+  if (!vu) {
+    var d = new Date(vf);
+    d.setDate(d.getDate() + 14);
+    vu = d.toISOString().split("T")[0];
+  }
+  var btn = document.getElementById("btn");
+  btn.disabled = true;
+  var log = document.getElementById("log");
+  log.textContent = "Uploading...\n";
+  var fd = new FormData();
+  fd.append("file", f);
+  fd.append("store", s);
+  fd.append("valid_from", vf);
+  fd.append("valid_until", vu);
+  fetch("/upload", { method: "POST", body: fd }).then(function(r) {
+    var reader = r.body.getReader();
+    var dec = new TextDecoder();
+    var buf = "";
+    function pump() {
+      reader.read().then(function(res) {
+        if (res.done) return;
+        buf += dec.decode(res.value, { stream: true });
+        var lines = buf.split("\n");
+        buf = lines.pop();
+        lines.forEach(function(line) {
+          if (!line.trim()) return;
+          try {
+            var d = JSON.parse(line);
+            if (d.type == "start") log.textContent += "Pages: " + d.pages + "\n";
+            else if (d.type == "page") {
+              log.textContent += "Page " + d.page + "/" + d.total_pages + ": " + d.products_found + " products\n";
+              log.scrollTop = 9999;
+            }
+            else if (d.type == "done") {
+              log.textContent += "\nDONE! " + d.products + " products saved!\n";
+              btn.disabled = false;
+              btn.textContent = "Process Another";
+            }
+            else if (d.type == "error") {
+              log.textContent += "ERROR: " + d.message + "\n";
+              btn.disabled = false;
+            }
+            else if (d.type == "page_error") {
+              log.textContent += "Page " + d.page + " error: " + d.error + "\n";
+            }
+          } catch(e) {}
+        });
+        pump();
+      });
+    }
+    pump();
+  }).catch(function(e) {
+    log.textContent += "ERROR: " + e.message;
+    btn.disabled = false;
+  });
+}
+</script>
+</body>
+</html>
