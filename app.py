@@ -27,28 +27,36 @@ def upload():
     except ImportError:
         return jsonify({"type": "error", "message": "PyMuPDF not installed"})
 
+    # Read request data before streaming
+    f = request.files.get("file")
+    store = request.form.get("store", "").strip()
+    valid_from = request.form.get("valid_from", "").strip()
+    valid_until = request.form.get("valid_until", "").strip()
+    file_data = f.read() if f else None
+    filename = f.filename if f else ""
+
     def stream():
         try:
-            f = request.files.get("file")
-            store = request.form.get("store", "").strip()
-            valid_from = request.form.get("valid_from", "").strip()
-            valid_until = request.form.get("valid_until", "").strip()
+            f = file_data
+            store_name = store
+            vf = valid_from
+            vu = valid_until
 
-            if not f or not store or not valid_from:
+            if not f or not store_name or not vf:
                 yield json.dumps({"type": "error", "message": "Missing fields"}) + "\n"
                 return
 
-            if not valid_until:
-                d = datetime.strptime(valid_from, "%Y-%m-%d")
-                valid_until = (d + timedelta(days=14)).strftime("%Y-%m-%d")
+            if not vu:
+                d = datetime.strptime(vf, "%Y-%m-%d")
+                vu = (d + timedelta(days=14)).strftime("%Y-%m-%d")
 
             tmp = "/tmp/catalogue.pdf"
-            f.save(tmp)
+            with open(tmp, "wb") as fp: fp.write(f)
 
             doc = fitz.open(tmp)
             total_pages = len(doc)
             total_products = 0
-            catalogue_name = f.filename.replace(".pdf", "")
+            catalogue_name = filename.replace(".pdf", "")
             catalogue_fine_print = None
 
             yield json.dumps({"type": "start", "pages": total_pages}) + "\n"
@@ -60,13 +68,13 @@ def upload():
                     img_bytes = pix.tobytes("jpeg")
                     img_b64 = base64.b64encode(img_bytes).decode()
 
-                    page_url = upload_image(img_bytes, store.lower() + "_page_" + str(i+1).zfill(3) + ".jpg")
+                    page_url = upload_image(img_bytes, store_name.lower() + "_page_" + str(i+1).zfill(3) + ".jpg")
 
                     products, fine_print = extract(img_b64, store, i+1)
                     if fine_print:
                         catalogue_fine_print = (catalogue_fine_print + " " + fine_print) if catalogue_fine_print else fine_print
 
-                    saved = save_products(products, store, i+1, page_url, catalogue_name, valid_from, valid_until)
+                    saved = save_products(products, store_name, i+1, page_url, catalogue_name, vf, vu)
                     total_products += saved
 
                     yield json.dumps({"type": "page", "page": i+1, "total_pages": total_pages, "products_found": len(products), "products_saved": saved, "total_products": total_products}) + "\n"
@@ -78,7 +86,7 @@ def upload():
             doc.close()
             os.remove(tmp)
 
-            save_catalogue(store, catalogue_name, valid_from, valid_until, catalogue_fine_print, total_pages, total_products)
+            save_catalogue(store_name, catalogue_name, valid_from, valid_until, catalogue_fine_print, total_pages, total_products)
 
             yield json.dumps({"type": "done", "products": total_products, "pages": total_pages}) + "\n"
 
@@ -166,7 +174,7 @@ def parse_date(s):
             continue
     return None
 
-def save_products(products, store, page_num, page_url, catalogue_name, valid_from, valid_until):
+def save_products(products, store, page_num, page_url, catalogue_name, vf, vu):
     if not products:
         return 0
     records = []
@@ -201,7 +209,7 @@ def save_products(products, store, page_num, page_url, catalogue_name, valid_fro
     )
     return len(records) if r.status_code in [200, 201] else 0
 
-def save_catalogue(store, catalogue_name, valid_from, valid_until, fine_print, pages, products_count):
+def save_catalogue(store_name, catalogue_name, valid_from, valid_until, fine_print, pages, products_count):
     requests.post(
         SUPABASE_URL + "/rest/v1/catalogues",
         headers={**headers(), "Prefer": "resolution=merge-duplicates,return=minimal"},
