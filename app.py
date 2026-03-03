@@ -86,7 +86,7 @@ def upload():
             doc.close()
             os.remove(tmp)
 
-            save_catalogue(store_name, catalogue_name, valid_from, valid_until, catalogue_fine_print, total_pages, total_products)
+            save_catalogue(store_name, catalogue_name, vf, vu, catalogue_fine_print, total_pages, total_products)
 
             yield json.dumps({"type": "done", "products": total_products, "pages": total_pages}) + "\n"
 
@@ -102,7 +102,7 @@ def upload():
 def extract(img_b64, store, page_num):
     url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + GEMINI_API_KEY
     prompt = (
-        "Page " + str(page_num) + " of " + store + " catalogue. "
+        "Page " + str(page_num) + " of " + store_name + " catalogue. "
         "Extract ALL products with prices. Also extract any fine print or disclaimers. "
         "Return ONLY a JSON array: "
         "[{\"product\":\"name\",\"brand\":\"brand or null\",\"quantity\":\"250g or null\","
@@ -209,7 +209,7 @@ def save_products(products, store, page_num, page_url, catalogue_name, vf, vu):
     )
     return len(records) if r.status_code in [200, 201] else 0
 
-def save_catalogue(store_name, catalogue_name, valid_from, valid_until, fine_print, pages, products_count):
+def save_catalogue(store_name, catalogue_name, vf, vu, fine_print, pages, products_count):
     requests.post(
         SUPABASE_URL + "/rest/v1/catalogues",
         headers={**headers(), "Prefer": "resolution=merge-duplicates,return=minimal"},
