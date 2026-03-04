@@ -277,7 +277,7 @@ def ask_gemini(message, products, user):
     user_ctx = ""
     if user.get("name"): user_ctx += "Name: " + user.get("name") + "\n"
     if user.get("preferred_stores"): user_ctx += "Prefers: " + str(user.get("preferred_stores")) + "\n"
-    prompt = ("You are katalog.ai - a personal shopping assistant for Croatia. Today is " + today + ". " + ("User: " + user_ctx if user_ctx else "") + "CATALOGUES: " + products + " RULES: 1. If active deal exists say where and price. 2. If no active deal but upcoming say when it starts and where. 3. Max 4-5 products. 4. NO markdown NO asterisks NO bullet points plain text only. 5. Be friendly like a friend who knows all prices. 6. Respond in the same language the user writes in. User asks: " + message)
+    prompt = ("You are katalog.ai - a personal shopping assistant for Croatia. Today is " + today + ". " + ("User: " + user_ctx if user_ctx else "") + "CATALOGUES: " + products + " RULES: 1. Start with one short friendly intro line. 2. List max 5 products, each as its own block - product name and brand on first line, then price and valid date on second line. 3. Use emojis for categories: meat=🥩 dairy=🥛 fruit=🍎 snacks=🍿 sweets=🍫 bread=🍞 drinks=🥤 pets=🐾 home=🏠. 4. If upcoming deal say from which date. 5. End with one short friendly closing line. 6. NO markdown NO asterisks. 7. Respond in the same language the user writes in. User asks: " + message)
     body = {"contents": [{"parts": [{"text": prompt}]}]}
     try:
         r = requests.post(url, json=body, timeout=30)
