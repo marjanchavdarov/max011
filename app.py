@@ -290,6 +290,20 @@ def ask_gemini(message, products, user):
     except:
         return "Sorry, I could not process your request right now."
 
+def find_page_image(message, products):
+    if not products:
+        return None
+    msg_lower = message.lower()
+    keywords = [w for w in msg_lower.split() if len(w) > 3]
+    for keyword in keywords:
+        for p in products:
+            product_name = (p.get("product") or "").lower()
+            category = (p.get("category") or "").lower()
+            if keyword in product_name or keyword in category:
+                if p.get("page_image_url"):
+                    return p.get("page_image_url")
+    return None
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
     phone = request.form.get("From", "")
@@ -299,8 +313,11 @@ def webhook():
     products_ctx = format_products(active, upcoming, fine_prints)
     reply = ask_gemini(message, products_ctx, user)
     update_user(phone, {"total_searches": (user.get("total_searches") or 0) + 1, "last_active": date.today().strftime("%Y-%m-%d")})
+    page_image = find_page_image(message, active + upcoming)
     resp = MessagingResponse()
-    resp.message(reply)
+    msg = resp.message(reply)
+    if page_image:
+        msg.media(page_image)
     return str(resp)
 
 @app.route("/", methods=["GET"])
