@@ -85,7 +85,7 @@ def upload():
                     pix = page.get_pixmap(matrix=fitz.Matrix(2.5, 2.5))
                     img_bytes = pix.tobytes("jpeg")
                     img_b64 = base64.b64encode(img_bytes).decode()
-                    page_url = upload_image(img_bytes, sn.lower() + "_page_" + str(i+1).zfill(3) + ".jpg")
+                    page_url = upload_image(img_bytes, sn.lower() + "_" + cat_name.lower().replace(" ", "_") + "_page_" + str(i+1).zfill(3) + ".jpg")
                     products, fine_print = extract(img_b64, sn, i+1)
                     if fine_print:
                         cat_fp = (cat_fp + " " + fine_print) if cat_fp else fine_print
