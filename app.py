@@ -143,7 +143,7 @@ def status(job_id):
 # ─────────────────────────────────────────
 
 def extract(img_b64, store, page_num):
-    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + GEMINI_API_KEY
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=" + GEMINI_API_KEY
     prompt = ("Page " + str(page_num) + " of " + store + " catalogue. Extract ALL products with prices. IMPORTANT: Convert ALL dates to YYYY-MM-DD format, year is 2026. od means valid_from, do means valid_until. Example: Od ponedjeljka 2.3. do 8.3. means valid_from 2026-03-02 valid_until 2026-03-08. Od petka 6.3. with no end date means valid_from 2026-03-06 valid_until null. Also extract any fine print or disclaimers. Return ONLY a JSON array: [{\"product\":\"name\",\"brand\":\"brand or null\",\"quantity\":\"250g or null\",\"original_price\":\"2.99 or null\",\"sale_price\":\"1.99\",\"discount_percent\":\"33% or null\",\"valid_from\":\"2026-03-02 or null\",\"valid_until\":\"2026-03-08 or null\",\"category\":\"category\",\"subcategory\":\"subcategory\",\"fine_print\":\"disclaimer or null\"}] Categories: Meso i riba, Mlijecni proizvodi, Kruh i pekarski, Voce i povrce, Pice, Grickalice i slatkisi, Konzervirana hrana, Kozmetika i higijena, Kucanstvo i ciscenje, Alati i gradnja, Dom i vrt, Elektronika, Odjeca i obuca, Kucni ljubimci, Zdravlje i ljekarna, Ostalo. If no products return: []")
     body = {"contents": [{"parts": [{"inline_data": {"mime_type": "image/jpeg", "data": img_b64}}, {"text": prompt}]}]}
     try:
