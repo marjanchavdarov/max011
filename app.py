@@ -192,7 +192,7 @@ def save_products(products, store, page_num, page_url, catalogue_name, valid_fro
         vu = parse_date(p.get("valid_until")) or valid_until
         vf = parse_date(p.get("valid_from")) or valid_from
         if not vu:
-            continue
+            vu = valid_until
         records.append({
             "store": store,
             "product": p.get("product", ""),
