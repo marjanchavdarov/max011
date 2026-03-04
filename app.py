@@ -310,19 +310,6 @@ def find_page_image(message, products):
                     return p.get("page_image_url")
     return None
     
-    def find_page_image(message, products):
-    if not products:
-        return None
-    msg_lower = message.lower()
-    keywords = [w for w in msg_lower.split() if len(w) > 3]
-    for keyword in keywords:
-        for p in products:
-            product_name = (p.get("product") or "").lower()
-            category = (p.get("category") or "").lower()
-            if keyword in product_name or keyword in category:
-                if p.get("page_image_url"):
-                    return p.get("page_image_url")
-    return None
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
