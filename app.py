@@ -321,6 +321,7 @@ def webhook():
     reply = ask_gemini(message, products_ctx, user)
     update_user(phone, {"total_searches": (user.get("total_searches") or 0) + 1, "last_active": date.today().strftime("%Y-%m-%d")})
     page_image = find_page_image(message, active + upcoming)
+    print("Page image URL: " + str(page_image))
     resp = MessagingResponse()
     msg = resp.message(reply)
     if page_image:
