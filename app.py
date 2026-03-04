@@ -144,25 +144,29 @@ def status(job_id):
 
 def extract(img_b64, store, page_num):
     url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=" + GEMINI_API_KEY
-    prompt = ("Page " + str(page_num) + " of " + store + " catalogue. Extract ALL products with prices. IMPORTANT: Convert ALL dates to YYYY-MM-DD format, year is 2026. od means valid_from, do means valid_until. Example: Od ponedjeljka 2.3. do 8.3. means valid_from 2026-03-02 valid_until 2026-03-08. Od petka 6.3. with no end date means valid_from 2026-03-06 valid_until null. Also extract any fine print or disclaimers. Return ONLY a JSON array: [{\"product\":\"name\",\"brand\":\"brand or null\",\"quantity\":\"250g or null\",\"original_price\":\"2.99 or null\",\"sale_price\":\"1.99\",\"discount_percent\":\"33% or null\",\"valid_from\":\"2026-03-02 or null\",\"valid_until\":\"2026-03-08 or null\",\"category\":\"category\",\"subcategory\":\"subcategory\",\"fine_print\":\"disclaimer or null\"}] Categories: Meso i riba, Mlijecni proizvodi, Kruh i pekarski, Voce i povrce, Pice, Grickalice i slatkisi, Konzervirana hrana, Kozmetika i higijena, Kucanstvo i ciscenje, Alati i gradnja, Dom i vrt, Elektronika, Odjeca i obuca, Kucni ljubimci, Zdravlje i ljekarna, Ostalo. If no products return: []")
+    prompt = ("Page " + str(page_num) + " of " + store + " catalogue. Extract ALL products with prices. IMPORTANT: Convert ALL dates to YYYY-MM-DD format, year is 2026. od means valid_from, do means valid_until. Example: Od ponedjeljka 2.3. do 8.3. means valid_from 2026-03-02 valid_until 2026-03-08. Od petka 6.3. with no end date means valid_from 2026-03-06 valid_until null. fine_print is ONLY for legal disclaimers like kolicina ogranicena, dok traje zaliha, nije u svim poslovnicama, vrijedi uz karticu - otherwise null. Return ONLY a JSON array: [{\"product\":\"name\",\"brand\":\"brand or null\",\"quantity\":\"250g or null\",\"original_price\":\"2.99 or null\",\"sale_price\":\"1.99\",\"discount_percent\":\"33% or null\",\"valid_from\":\"2026-03-02 or null\",\"valid_until\":\"2026-03-08 or null\",\"category\":\"category\",\"subcategory\":\"subcategory\",\"fine_print\":\"legal disclaimer or null\"}] Categories: Meso i riba, Mlijecni proizvodi, Kruh i pekarski, Voce i povrce, Pice, Grickalice i slatkisi, Konzervirana hrana, Kozmetika i higijena, Kucanstvo i ciscenje, Alati i gradnja, Dom i vrt, Elektronika, Odjeca i obuca, Kucni ljubimci, Zdravlje i ljekarna, Ostalo. If no products return: []")
     body = {"contents": [{"parts": [{"inline_data": {"mime_type": "image/jpeg", "data": img_b64}}, {"text": prompt}]}]}
-    try:
-         for attempt in range(3):
-        text = r.json()["candidates"][0]["content"]["parts"][0]["text"]
-        text = text.replace("```json", "").replace("```", "").strip()
-        result = json.loads(text)
+    for attempt in range(3):
+        try:
+            r = requests.post(url, json=body, timeout=45)
+            text = r.json()["candidates"][0]["content"]["parts"][0]["text"]
+            text = text.replace("```json", "").replace("```", "").strip()
+            result = json.loads(text)
             if not isinstance(result, list):
-        return [], None
+                return [], None
+            fine_print = None
+            for p in result:
+                if p.get("fine_print") and p.get("fine_print") not in [None, "null"]:
+                    fine_print = p.get("fine_print")
+                    break
+            return result, fine_print
+        except Exception as e:
+            print("Gemini error page " + str(page_num) + " attempt " + str(attempt+1) + ": " + str(e))
+            if attempt == 2:
+                return [], None
             continue
-        fine_print = None
-        for p in result:
-            if p.get("fine_print") and p.get("fine_print") != "null":
-                fine_print = p.get("fine_print")
-                break
-        return result, fine_print
-    except Exception as e:
-        print("Gemini error page " + str(page_num) + ": " + str(e))
-        return [], None
+    return [], None
+
 
 # ─────────────────────────────────────────
 # SUPABASE HELPERS
