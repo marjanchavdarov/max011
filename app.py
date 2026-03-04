@@ -175,6 +175,7 @@ def extract(img_b64, store, page_num):
 def upload_image(img_bytes, filename):
     h = {"apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY, "Content-Type": "image/jpeg"}
     r = requests.post(SUPABASE_URL + "/storage/v1/object/katalog-images/" + filename, headers=h, data=img_bytes)
+    print("Image upload " + filename + " status: " + str(r.status_code) + " response: " + r.text[:200])
     if r.status_code in [200, 201]:
         return SUPABASE_URL + "/storage/v1/object/public/katalog-images/" + filename
     return None
