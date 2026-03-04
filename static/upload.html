@@ -11,6 +11,8 @@ label{color:#aaa;font-size:13px}
 button{background:#00ff88;color:#000;border:none;padding:15px;font-weight:bold;font-size:16px;cursor:pointer;width:100%;margin-top:10px}
 button:disabled{background:#444;color:#888;cursor:not-allowed}
 #log{background:#000;padding:20px;margin-top:20px;min-height:100px;font-size:12px;line-height:1.8;white-space:pre-wrap}
+#bar{background:#222;height:20px;margin-top:10px;display:none}
+#fill{background:#00ff88;height:20px;width:0%;transition:width 0.5s}
 </style>
 </head>
 <body>
@@ -24,10 +26,11 @@ button:disabled{background:#444;color:#888;cursor:not-allowed}
 <label>Valid Until (empty = 14 days auto):</label>
 <input type="text" id="vu" placeholder="2026-03-16">
 <button id="btn" onclick="go()">Process</button>
+<div id="bar"><div id="fill"></div></div>
 <div id="log">Ready.</div>
 <script>
 var pollInterval = null;
-var lastLogLen = 0;
+var lastPage = 0;
 
 function go() {
   var f = document.getElementById("f").files[0];
@@ -46,6 +49,7 @@ function go() {
   btn.disabled = true;
   var log = document.getElementById("log");
   log.textContent = "Uploading file...\n";
+  document.getElementById("bar").style.display = "block";
   var fd = new FormData();
   fd.append("file", f);
   fd.append("store", s);
@@ -59,30 +63,41 @@ function go() {
       btn.disabled = false;
       return;
     }
-    log.textContent += "Processing started! Job: " + data.job_id + "\n";
-    lastLogLen = 0;
-    pollInterval = setInterval(function() { poll(data.job_id); }, 3000);
+    log.textContent += "Job started! " + data.total_pages + " pages to process\n";
+    log.textContent += "Job ID: " + data.job_id + " (save this to resume if needed)\n\n";
+    lastPage = 0;
+    pollInterval = setInterval(function() { poll(data.job_id, data.total_pages); }, 4000);
   }).catch(function(e) {
     log.textContent += "ERROR: " + e.message + "\n";
     btn.disabled = false;
   });
 }
 
-function poll(job_id) {
+function poll(job_id, total_pages) {
   fetch("/status/" + job_id).then(function(r) {
     return r.json();
   }).then(function(data) {
     var log = document.getElementById("log");
-    var newLines = data.log.slice(lastLogLen);
-    newLines.forEach(function(line) {
-      log.textContent += line + "\n";
-    });
-    lastLogLen = data.log.length;
-    log.scrollTop = 9999;
-    if (data.done) {
+    var cur = data.current_page || 0;
+    if (cur > lastPage) {
+      for (var i = lastPage + 1; i <= cur; i++) {
+        log.textContent += "Page " + i + "/" + total_pages + " done\n";
+      }
+      lastPage = cur;
+      log.scrollTop = 9999;
+      var pct = Math.round((cur / total_pages) * 100);
+      document.getElementById("fill").style.width = pct + "%";
+    }
+    if (data.status === "done") {
       clearInterval(pollInterval);
+      log.textContent += "\nDONE! " + data.total_products + " products saved!\n";
+      document.getElementById("fill").style.width = "100%";
       document.getElementById("btn").disabled = false;
       document.getElementById("btn").textContent = "Process Another";
+    } else if (data.status === "error") {
+      clearInterval(pollInterval);
+      log.textContent += "\nERROR - check Render logs\n";
+      document.getElementById("btn").disabled = false;
     }
   }).catch(function(e) {
     console.log("Poll error:", e);
