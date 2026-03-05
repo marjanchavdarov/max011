@@ -41,6 +41,8 @@ function go() {
   var s = document.getElementById("s").value;
   var vf = document.getElementById("vf").value;
   var vu = document.getElementById("vu").value;
+  var rj = document.getElementById("rj").value.trim();
+  if (rj) fd.append("resume_job_id", rj);
   if (!f) { alert("Pick a file"); return; }
   if (!s) { alert("Enter store"); return; }
   if (!vf) { alert("Enter date"); return; }
