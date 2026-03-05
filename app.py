@@ -60,7 +60,22 @@ def upload():
     except Exception as e:
         return jsonify({"error": "Could not read PDF: " + str(e)}), 500
 
+    resume_job_id = request.form.get("resume_job_id", "").strip()
+if resume_job_id:
+    existing = requests.get(SUPABASE_URL + "/rest/v1/jobs?id=eq." + resume_job_id, headers=db_headers())
+    if existing.status_code == 200 and existing.json():
+        job = existing.json()[0]
+        job_id = resume_job_id
+        start_page = job.get("current_page", 0)
+        total_products_so_far = job.get("total_products", 0)
+    else:
+        job_id = str(uuid.uuid4())[:8]
+        start_page = 0
+        total_products_so_far = 0
+else:
     job_id = str(uuid.uuid4())[:8]
+    start_page = 0
+    total_products_so_far = 0
     cat_name = fn.replace(".pdf", "")
 
     requests.post(
@@ -77,9 +92,9 @@ def upload():
                 fp.write(fd)
             doc = fitz.open(tmp)
             cat_fp = None
-            total_products = 0
+            total_products = total_products_so_far
 
-            for i in range(total_pages):
+            for i in range(start_page, total_pages):
                 try:
                     page = doc[i]
                     pix = page.get_pixmap(matrix=fitz.Matrix(2.5, 2.5))
