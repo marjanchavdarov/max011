@@ -591,11 +591,17 @@ def home():
     return "katalog.ai is running!"
 
 @app.route("/test-db")
+@app.route("/test-db")
 def test_db():
     phone = "whatsapp:+385915121910"
-    r = update_user(phone, {"conversation": json.dumps([{"role": "test", "content": "hello"}]), "last_active": datetime.now().isoformat()})
-    check = requests.get(SUPABASE_URL + "/rest/v1/users?phone=eq." + phone, headers=db_headers())
-    return jsonify(check.json())
+    h = {**db_headers(), "Prefer": "return=minimal"}
+    r = requests.patch(
+        SUPABASE_URL + "/rest/v1/users?phone=eq." + phone,
+        headers=h,
+        json={"conversation": "[{\"role\":\"test\"}]", "last_active": datetime.now().isoformat()},
+        timeout=10
+    )
+    return jsonify({"status": r.status_code, "response": r.text})
 
 if __name__ == "__main__":
     app.run(debug=True)
