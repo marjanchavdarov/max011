@@ -282,34 +282,52 @@ def format_products(active, upcoming, fine_prints):
             result += s + ": " + fp + "\n"
     return result or "Database is empty."
 
+def update_user_summary(phone, user_summary, conversation, user_message, bot_reply):
+    # Add new messages to conversation
+    conv = conversation or []
+    conv.append({"role": "user", "content": user_message})
+    conv.append({"role": "bot", "content": bot_reply})
+    # Keep last 10 messages only
+    conv = conv[-10:]
+    # Ask Gemini to update user profile
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + GEMINI_API_KEY
+    prompt = ("Current user profile: " + (user_summary or "empty") + ". Latest exchange - User said: " + user_message + ". Bot replied: " + bot_reply[:200] + ". Update the profile in max 60 words. Include: preferred stores, product interests, language preference, any personal details mentioned. Return ONLY the updated profile text, nothing else.")
+    body = {"contents": [{"parts": [{"text": prompt}]}]}
+    try:
+        r = requests.post(url, json=body, timeout=15)
+        new_summary = r.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+    except:
+        new_summary = user_summary or ""
+    update_user(phone, {
+        "total_searches": 1,
+        "last_active": date.today().strftime("%Y-%m-%d"),
+        "conversation": json.dumps(conv),
+        "user_summary": new_summary
+    })
+
 def ask_gemini(message, products, user):
     url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + GEMINI_API_KEY
     today = date.today().strftime("%d.%m.%Y.")
+    # Build user context from profile and conversation
     user_ctx = ""
-    if user.get("name"): user_ctx += "Name: " + user.get("name") + "\n"
-    if user.get("preferred_stores"): user_ctx += "Prefers: " + str(user.get("preferred_stores")) + "\n"
-    prompt = ("You are katalog.ai - a friendly personal shopping assistant for Croatia. Today is " + today + ". " + ("User: " + user_ctx if user_ctx else "") + "CATALOGUES: " + products + " RULES: 1. If user says hello or greeting - introduce yourself as katalog.ai shopping assistant and ask what they are looking for. Do NOT list products on greeting. 2. For product questions - start with one short friendly line, then list max 5 products each as its own block with name and brand on first line, price and date on second line. 3. Use emojis: meat=🥩 dairy=🥛 fruit=🍎 snacks=🍿 sweets=🍫 bread=🍞 drinks=🥤 pets=🐾 home=🏠 veggies=🥦. 4. Upcoming deals - mention start date. 5. End with one short friendly line. 6. NO markdown NO asterisks. 7. Respond in the same language the user writes in and keep ALL dates and words in that same language. 8. Never say you dont have images or pictures. 9. Be warm and natural like a friend who knows all the deals - not robotic. User asks: " + message)
+    if user.get("user_summary"):
+        user_ctx += "User profile: " + user.get("user_summary") + "\n"
+    if user.get("conversation"):
+        try:
+            conv = json.loads(user.get("conversation")) if isinstance(user.get("conversation"), str) else user.get("conversation")
+            if conv:
+                user_ctx += "Recent conversation:\n"
+                for msg in conv[-6:]:
+                    user_ctx += msg.get("role", "") + ": " + msg.get("content", "") + "\n"
+        except:
+            pass
+    prompt = ("You are katalog.ai - a friendly personal shopping assistant for Croatia. Today is " + today + ". " + (user_ctx if user_ctx else "") + "CATALOGUES: " + products + " RULES: 1. If user says hello or greeting - introduce yourself as katalog.ai shopping assistant and ask what they are looking for. Do NOT list products on greeting. 2. For product questions - start with one short friendly line, then list max 5 products each as its own block with name and brand on first line, price and date on second line. 3. Use emojis: meat=🥩 dairy=🥛 fruit=🍎 snacks=🍿 sweets=🍫 bread=🍞 drinks=🥤 pets=🐾 home=🏠 veggies=🥦. 4. Upcoming deals - mention start date. 5. End with one short friendly line. 6. NO markdown NO asterisks. 7. Respond in the same language the user writes in and keep ALL dates and words in that same language. 8. Never say you dont have images or pictures. 9. Be warm and natural like a friend who knows all the deals - not robotic. User asks: " + message)
     body = {"contents": [{"parts": [{"text": prompt}]}]}
     try:
         r = requests.post(url, json=body, timeout=30)
         return r.json()["candidates"][0]["content"]["parts"][0]["text"]
     except:
         return "Sorry, I could not process your request right now."
-
-def find_page_image(message, products):
-    if not products:
-        return None
-    msg_lower = message.lower()
-    keywords = [w for w in msg_lower.split() if len(w) > 3]
-    for keyword in keywords:
-        for p in products:
-            product_name = (p.get("product") or "").lower()
-            category = (p.get("category") or "").lower()
-            if keyword in product_name or keyword in category:
-                if p.get("page_image_url"):
-                    return p.get("page_image_url")
-    return None
-    
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
@@ -319,9 +337,14 @@ def webhook():
     active, upcoming, fine_prints = get_products()
     products_ctx = format_products(active, upcoming, fine_prints)
     reply = ask_gemini(message, products_ctx, user)
-    update_user(phone, {"total_searches": (user.get("total_searches") or 0) + 1, "last_active": date.today().strftime("%Y-%m-%d")})
     page_image = find_page_image(message, active + upcoming)
-    print("Page image URL: " + str(page_image))
+    conversation = user.get("conversation") or []
+    if isinstance(conversation, str):
+        try:
+            conversation = json.loads(conversation)
+        except:
+            conversation = []
+    update_user_summary(phone, user.get("user_summary"), conversation, message, reply)
     resp = MessagingResponse()
     msg = resp.message(reply)
     if page_image:
