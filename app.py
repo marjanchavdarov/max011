@@ -7,6 +7,7 @@ import base64
 import threading
 import uuid
 from datetime import datetime, date, timedelta
+import re
 
 app = Flask(__name__, static_folder="static")
 
@@ -136,7 +137,7 @@ def status(job_id):
     return jsonify({"error": "Job not found"}), 404
 
 # ─────────────────────────────────────────
-# GEMINI EXTRACT — ALL DATA IN ENGLISH
+# GEMINI EXTRACT
 # ─────────────────────────────────────────
 
 def extract(img_b64, store, page_num, valid_from):
@@ -149,24 +150,21 @@ def extract(img_b64, store, page_num, valid_from):
     prompt = (
         "Page " + str(page_num) + " of " + store + " catalogue. "
         "Extract ONLY real purchasable products that have a clear price in euros. "
-        "IMPORTANT: Translate ALL product names, brands, and categories to ENGLISH. "
+        "Translate ALL product names, brands and categories to ENGLISH. "
         "STRICT RULES: "
-        "1. Product MUST have a visible sale price in euros (e.g. 2.99) - if no euro price skip it. "
-        "2. If only percentage discount shown with no actual price skip it. "
-        "3. Skip promotional items, collectibles, gifts, loyalty rewards, stuffed animals, contest prizes. "
-        "4. Skip anything that is not a real grocery or household product with a real euro price. "
-        "5. Convert ALL dates to YYYY-MM-DD format, year is " + year + ". od/von/de means valid_from, do/bis/a means valid_until. "
-        "Example: Od 2.3. do 8.3. means valid_from " + year + "-03-02 valid_until " + year + "-03-08. "
-        "6. fine_print is ONLY for legal disclaimers like limited quantity, while supplies last, not in all stores - otherwise null. "
-        "Return ONLY a JSON array with ALL fields in English: "
-        "[{\"product\":\"Whole Milk\",\"brand\":\"brand or null\",\"quantity\":\"1L or null\","
-        "\"original_price\":\"2.99 or null\",\"sale_price\":\"1.99\",\"discount_percent\":\"33% or null\","
-        "\"valid_from\":\"" + year + "-03-02 or null\",\"valid_until\":\"" + year + "-03-08 or null\","
-        "\"category\":\"category\",\"subcategory\":\"subcategory\",\"fine_print\":\"legal disclaimer or null\"}] "
-        "Categories in English: Meat and Fish, Dairy, Bread and Bakery, Fruit and Vegetables, Drinks, "
+        "1. Product MUST have a visible euro price - skip if no price. "
+        "2. Skip promotional items, gifts, loyalty rewards, contest prizes, stuffed animals. "
+        "3. Convert dates to YYYY-MM-DD, year is " + year + ". od/von=valid_from, do/bis=valid_until. "
+        "4. fine_print ONLY for legal disclaimers like limited quantity, while supplies last - otherwise null. "
+        "Return ONLY JSON array: [{\"product\":\"English name\",\"brand\":\"brand or null\","
+        "\"quantity\":\"250g or null\",\"original_price\":\"2.99 or null\",\"sale_price\":\"1.99\","
+        "\"discount_percent\":\"33% or null\",\"valid_from\":\"" + year + "-03-02 or null\","
+        "\"valid_until\":\"" + year + "-03-08 or null\",\"category\":\"English category\","
+        "\"subcategory\":\"English subcategory\",\"fine_print\":\"disclaimer or null\"}] "
+        "Categories: Meat and Fish, Dairy, Bread and Bakery, Fruit and Vegetables, Drinks, "
         "Snacks and Sweets, Canned Food, Cosmetics and Hygiene, Household and Cleaning, "
-        "Tools and Construction, Home and Garden, Electronics, Clothing and Shoes, Pet Food, Health and Pharmacy, Other. "
-        "If no valid products return: []"
+        "Tools and Construction, Home and Garden, Electronics, Clothing and Shoes, Pet Food, "
+        "Health and Pharmacy, Other. If no valid products return: []"
     )
     body = {
         "contents": [{"parts": [{"inline_data": {"mime_type": "image/jpeg", "data": img_b64}}, {"text": prompt}]}],
@@ -281,24 +279,27 @@ def update_user(phone, updates):
     requests.patch(SUPABASE_URL + "/rest/v1/users?phone=eq." + phone, headers={**db_headers(), "Prefer": "return=minimal"}, json=updates)
 
 def filter_products(message, active, upcoming):
-    # Translate common words to English for matching
     translations = {
-        "mlijeko": "milk", "mlijeka": "milk", "mlijecni": "dairy",
-        "meso": "meat", "mesa": "meat", "pile": "chicken", "piletina": "chicken",
+        "mlijeko": "milk", "mlijeka": "milk", "mlijecni": "dairy", "mlijecnih": "dairy",
+        "meso": "meat", "mesa": "meat", "mesni": "meat",
+        "pile": "chicken", "piletina": "chicken", "pileca": "chicken",
         "kruh": "bread", "kruha": "bread", "pecivo": "bakery",
-        "voce": "fruit", "voca": "fruit", "povrce": "vegetables",
-        "jogurt": "yogurt", "jogurta": "yogurt", "sir": "cheese",
-        "grickalice": "snacks", "slatkisi": "sweets", "cokolada": "chocolate",
-        "pivo": "beer", "vino": "wine", "sokovi": "juice",
+        "voce": "fruit", "voca": "fruit", "povrce": "vegetables", "povrca": "vegetables",
+        "jogurt": "yogurt", "jogurta": "yogurt",
+        "sir": "cheese", "sira": "cheese",
+        "grickalice": "snacks", "slatkisi": "sweets",
+        "cokolada": "chocolate", "cokolade": "chocolate",
+        "pivo": "beer", "vino": "wine", "sokovi": "juice", "sok": "juice",
         "ulje": "oil", "brasno": "flour", "secer": "sugar",
         "kava": "coffee", "kafe": "coffee", "caj": "tea",
-        "riba": "fish", "ribe": "fish", "svinjetina": "pork",
-        "govedina": "beef", "janjetina": "lamb",
+        "riba": "fish", "ribe": "fish",
+        "svinjetina": "pork", "svinjski": "pork",
+        "govedina": "beef", "goveđi": "beef",
         "detergent": "detergent", "sapun": "soap", "samponi": "shampoo",
-        "kucanstvo": "household", "ljubimci": "pets", "pas": "dog", "macka": "cat"
+        "ljubimci": "pets", "pas": "dog", "macka": "cat",
+        "jaja": "eggs", "jaje": "eggs"
     }
     msg_lower = message.lower()
-    # Replace Croatian words with English equivalents
     for cro, eng in translations.items():
         msg_lower = msg_lower.replace(cro, eng)
 
@@ -311,8 +312,9 @@ def filter_products(message, active, upcoming):
         brand = (p.get("brand") or "").lower()
         cat = (p.get("category") or "").lower()
         subcat = (p.get("subcategory") or "").lower()
+        store = (p.get("store") or "").lower()
         for kw in keywords:
-            if kw in name or kw in brand or kw in cat or kw in subcat:
+            if kw in name or kw in brand or kw in cat or kw in subcat or kw in store:
                 return True
         return False
 
@@ -334,26 +336,68 @@ def format_products(active, upcoming, fine_prints):
             if p.get("quantity"): result += " " + p.get("quantity")
             result += " | " + str(p.get("sale_price", ""))
             if p.get("original_price"): result += " (was " + str(p.get("original_price")) + ")"
-            result += " | until: " + str(p.get("valid_until", "")) + "\n"
+            result += " | until: " + str(p.get("valid_until", ""))
+            result += " | page: " + str(p.get("page_number", ""))
+            result += " | img: " + str(p.get("page_image_url", "")) + "\n"
     if upcoming:
         result += "\n=== UPCOMING DEALS ===\n"
         for p in upcoming:
             result += p.get("store", "") + " | " + p.get("product", "")
             result += " | " + str(p.get("sale_price", ""))
-            result += " | from: " + str(p.get("valid_from", "")) + " to " + str(p.get("valid_until", "")) + "\n"
+            result += " | from: " + str(p.get("valid_from", "")) + " to " + str(p.get("valid_until", ""))
+            result += " | page: " + str(p.get("page_number", ""))
+            result += " | img: " + str(p.get("page_image_url", "")) + "\n"
     if fine_prints:
         result += "\n=== STORE NOTES ===\n"
         for s, fp in fine_prints.items():
             result += s + ": " + fp + "\n"
     return result or "No matching products found."
 
+def get_page_image_url(store, page_num, active, upcoming):
+    all_products = active + upcoming
+    for p in all_products:
+        if (p.get("store") or "").lower() == store.lower() and p.get("page_number") == page_num:
+            if p.get("page_image_url"):
+                return p.get("page_image_url")
+    # fallback - search by page number only
+    for p in all_products:
+        if p.get("page_number") == page_num and p.get("page_image_url"):
+            return p.get("page_image_url")
+    return None
+
+def get_adjacent_page(current_url, direction, all_products):
+    if not current_url:
+        return None
+    try:
+        parts = current_url.rsplit("_page_", 1)
+        if len(parts) != 2:
+            return None
+        prefix = parts[0]
+        current_num = int(parts[1].replace(".jpg", ""))
+        new_num = current_num + direction
+        if new_num < 1:
+            return None
+        new_url = prefix + "_page_" + str(new_num).zfill(3) + ".jpg"
+        # Check in products table
+        for p in all_products:
+            if p.get("page_image_url") == new_url:
+                return new_url
+        return None
+    except Exception as e:
+        print("Adjacent page error: " + str(e))
+        return None
+
+def extract_page_numbers(text):
+    numbers = re.findall(r'\b(\d{1,3})\b', text)
+    return [int(n) for n in numbers if 1 <= int(n) <= 200]
+
 def update_user_summary(phone, user_summary, conversation, user_message, bot_reply):
     conv = conversation or []
     conv.append({"role": "user", "content": user_message})
-    conv.append({"role": "bot", "content": bot_reply})
+    conv.append({"role": "bot", "content": bot_reply[:300]})
     conv = conv[-10:]
     url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + GEMINI_API_KEY
-    prompt = ("Current user profile: " + (user_summary or "empty") + ". Latest exchange - User said: " + user_message + ". Bot replied: " + bot_reply[:200] + ". Update the profile in max 60 words. Include: preferred stores, product interests, language preference, any personal details mentioned. Return ONLY the updated profile text.")
+    prompt = ("Current user profile: " + (user_summary or "empty") + ". Latest exchange - User: " + user_message + ". Bot: " + bot_reply[:200] + ". Update profile in max 60 words. Include: preferred stores, interests, language. Return ONLY profile text.")
     body = {"contents": [{"parts": [{"text": prompt}]}]}
     try:
         r = requests.post(url, json=body, timeout=15)
@@ -381,124 +425,139 @@ def ask_gemini(message, products, user):
                     user_ctx += msg.get("role", "") + ": " + msg.get("content", "") + "\n"
         except:
             pass
+
     prompt = (
-        "You are katalog.ai - a friendly personal shopping assistant. Today is " + today + ". "
+        "You are katalog.ai - a smart friendly shopping assistant. Today is " + today + ". "
         + (user_ctx if user_ctx else "")
-        + "PRODUCT DATABASE (in English): " + products + " "
-        "RULES: "
-        "1. If user says hello or greeting - introduce yourself as katalog.ai shopping assistant and ask what they are looking for. Also tell them: type + for next page, - for previous page after seeing a catalogue page. Do NOT list products on greeting. "
-        "2. For product questions - start with one short friendly line, then list max 5 products each as its own block with name and brand on first line, price and date on second line. "
-        "3. Use emojis: meat=🥩 dairy=🥛 fruit=🍎 snacks=🍿 sweets=🍫 bread=🍞 drinks=🥤 pets=🐾 home=🏠 veggies=🥦. "
-        "4. Upcoming deals - mention start date. "
-        "5. End with one short friendly line. "
-        "6. NO markdown NO asterisks. "
-        "7. IMPORTANT: Respond in the same language the user writes in. Translate product names to that language. Keep ALL dates and words in that same language. "
-        "8. Never say you dont have images or pictures. "
-        "9. Be warm and natural like a friend who knows all the deals - not robotic. "
-        "User asks: " + message
+        + "PRODUCT DATABASE (English, includes page numbers and image URLs): \n" + products + "\n"
+        "IMPORTANT INSTRUCTIONS: "
+        "1. Max response length is 4096 characters total. Be concise. "
+        "2. Respond in the same language the user writes in. Translate product names naturally. "
+        "3. When listing products always mention which PAGE they are on. "
+        "4. At the end of product responses always add a line like: 'Stranice: 1, 3, 7 — odgovori brojem stranice za pregled' (in user language). "
+        "5. You can send up to 2 messages - use [MSG2] tag to start second message if needed. "
+        "6. Focus on being visual - encourage users to browse pages. "
+        "7. On greeting introduce yourself and mention + for next page, - for previous page, or just type a page number. "
+        "8. Be warm and natural like a smart friend. No markdown, no asterisks. Use emojis naturally. "
+        "9. Never say you dont have images. "
+        "User message: " + message
     )
     body = {"contents": [{"parts": [{"text": prompt}]}]}
     try:
         r = requests.post(url, json=body, timeout=30)
         return r.json()["candidates"][0]["content"]["parts"][0]["text"]
     except:
-        return "Sorry, I could not process your request right now."
-
-def find_page_image(message, products):
-    if not products:
-        return None
-    msg_lower = message.lower()
-    # Translate Croatian keywords to English for matching
-    translations = {
-        "mlijeko": "milk", "meso": "meat", "pile": "chicken",
-        "kruh": "bread", "voce": "fruit", "povrce": "vegetables",
-        "jogurt": "yogurt", "sir": "cheese", "grickalice": "snacks",
-        "cokolada": "chocolate", "pivo": "beer", "riba": "fish"
-    }
-    for cro, eng in translations.items():
-        msg_lower = msg_lower.replace(cro, eng)
-
-    keywords = [w for w in msg_lower.split() if len(w) > 3]
-    for keyword in keywords:
-        for p in products:
-            product_name = (p.get("product") or "").lower()
-            category = (p.get("category") or "").lower()
-            if keyword in product_name or keyword in category:
-                if p.get("page_image_url"):
-                    return p.get("page_image_url")
-    return None
-
-def get_adjacent_page(current_url, direction):
-    if not current_url:
-        return None
-    try:
-        parts = current_url.rsplit("_page_", 1)
-        if len(parts) != 2:
-            return None
-        prefix = parts[0]
-        page_part = parts[1]
-        current_num = int(page_part.replace(".jpg", ""))
-        new_num = current_num + direction
-        if new_num < 1:
-            return None
-        new_url = prefix + "_page_" + str(new_num).zfill(3) + ".jpg"
-        # Check if page exists by looking in products table
-        filename = new_url.split("/katalog-images/")[-1]
-        h = db_headers()
-        r = requests.get(SUPABASE_URL + "/rest/v1/products?page_image_url=eq." + new_url + "&limit=1&select=page_image_url", headers=h, timeout=5)
-        if r.status_code == 200 and r.json():
-            return new_url
-        return None
-    except Exception as e:
-        print("Adjacent page error: " + str(e))
-        return None
+        return "Sorry, could not process your request right now."
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
     phone = request.form.get("From", "")
     message = request.form.get("Body", "").strip()
     user = get_or_create_user(phone)
+    active, upcoming, fine_prints = get_products()
+    all_products = active + upcoming
+    resp = MessagingResponse()
 
-    # Handle page navigation
+    # ── Navigation: + or - ──
     if message in ["+", ">"]:
-        next_url = get_adjacent_page(user.get("last_page_url"), 1)
-        resp = MessagingResponse()
-        if next_url:
-            msg = resp.message("Next page ➡️  (+ for next, - for previous)")
-            msg.media(next_url)
-            update_user(phone, {"last_page_url": next_url})
+        adj = get_adjacent_page(user.get("last_page_url"), 1, all_products)
+        if adj:
+            msg = resp.message("➡️  + sljedeća / - prethodna")
+            msg.media(adj)
+            update_user(phone, {"last_page_url": adj})
         else:
-            resp.message("No next page. Send - for previous page.")
+            resp.message("Nema sljedeće stranice. Pošalji - za prethodnu.")
         return str(resp)
 
     if message in ["-", "<"]:
-        prev_url = get_adjacent_page(user.get("last_page_url"), -1)
-        resp = MessagingResponse()
-        if prev_url:
-            msg = resp.message("Previous page ⬅️  (+ for next, - for previous)")
-            msg.media(prev_url)
-            update_user(phone, {"last_page_url": prev_url})
+        adj = get_adjacent_page(user.get("last_page_url"), -1, all_products)
+        if adj:
+            msg = resp.message("⬅️  + sljedeća / - prethodna")
+            msg.media(adj)
+            update_user(phone, {"last_page_url": adj})
         else:
-            resp.message("No previous page. Send + for next page.")
+            resp.message("Nema prethodne stranice. Pošalji + za sljedeću.")
         return str(resp)
 
-    active, upcoming, fine_prints = get_products()
+    # ── Page number request ──
+    waiting = user.get("waiting_for_page") or False
+    available = user.get("available_pages") or []
+    if isinstance(available, str):
+        try:
+            available = json.loads(available)
+        except:
+            available = []
+
+    nums = extract_page_numbers(message)
+    is_only_numbers = bool(nums) and not re.search(r'[a-zA-ZčćšđžČĆŠĐŽ]{3,}', message)
+    page_request_nums = []
+
+    if waiting and nums:
+        # User is responding to page list - any numbers count
+        page_request_nums = [n for n in nums if n in available] or nums[:3]
+    elif is_only_numbers:
+        # Message is purely numbers - treat as page request
+        page_request_nums = nums[:3]
+    else:
+        # Check for explicit page request like "stranica 3" or "page 3" or "str. 3"
+        explicit = re.findall(r'(?:stranica|str\.|page|pg\.?)\s*(\d+)', message.lower())
+        if explicit:
+            page_request_nums = [int(n) for n in explicit[:3]]
+
+    if page_request_nums:
+        store = user.get("last_catalogue_store") or ""
+        sent_pages = []
+        for pg in page_request_nums[:2]:  # max 2 pages at once
+            img_url = get_page_image_url(store, pg, active, upcoming)
+            if img_url:
+                msg = resp.message("Str. " + str(pg) + " 📖  ( + sljedeća / - prethodna )")
+                msg.media(img_url)
+                update_user(phone, {"last_page_url": img_url, "waiting_for_page": False})
+                sent_pages.append(pg)
+        if not sent_pages:
+            resp.message("Stranica nije pronađena. Pokušaj drugi broj.")
+        return str(resp)
+
+    # ── Normal message ──
     filtered_active, filtered_upcoming = filter_products(message, active, upcoming)
+
+    # Find page numbers and store for context
+    page_nums = sorted(set([p.get("page_number") for p in filtered_active + filtered_upcoming if p.get("page_number")]))
+    stores = list(set([p.get("store") for p in filtered_active + filtered_upcoming if p.get("store")]))
+    main_store = stores[0] if len(stores) == 1 else ""
+
     products_ctx = format_products(filtered_active, filtered_upcoming, fine_prints)
     reply = ask_gemini(message, products_ctx, user)
-    page_image = find_page_image(message, active + upcoming)
+
+    # Split into 2 messages if [MSG2] tag present
+    parts = reply.split("[MSG2]")
+    msg1_text = parts[0].strip()
+    msg2_text = parts[1].strip() if len(parts) > 1 else ""
+
     conversation = user.get("conversation") or []
     if isinstance(conversation, str):
         try:
             conversation = json.loads(conversation)
         except:
             conversation = []
+
     update_user_summary(phone, user.get("user_summary"), conversation, message, reply)
-    resp = MessagingResponse()
-    msg = resp.message(reply)
-    if page_image:
-        msg.media(page_image)
-        update_user(phone, {"last_page_url": page_image})
+
+    # Save page context for follow-up
+    if page_nums:
+        update_user(phone, {
+            "waiting_for_page": True,
+            "available_pages": json.dumps(page_nums),
+            "last_catalogue_store": main_store
+        })
+    else:
+        update_user(phone, {"waiting_for_page": False})
+
+    # Send messages
+    resp.message(msg1_text)
+    if msg2_text:
+        resp.message(msg2_text)
+
     return str(resp)
 
 @app.route("/", methods=["GET"])
