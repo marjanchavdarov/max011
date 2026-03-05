@@ -594,5 +594,17 @@ def test_db():
     )
     return jsonify({"status": r.status_code, "response": r.text})
 
+@app.route("/test-patch")
+def test_patch():
+    phone = "whatsapp:+385915121910"
+    payload = {"conversation": [{"role": "api_test", "content": "from python"}], "last_active": datetime.now().isoformat()}
+    r = requests.patch(
+        SUPABASE_URL + "/rest/v1/users?phone=eq." + phone,
+        headers={**db_headers(), "Prefer": "return=representation"},
+        json=payload,
+        timeout=10
+    )
+    return jsonify({"status": r.status_code, "response": r.json()})
+
 if __name__ == "__main__":
     app.run(debug=True)
