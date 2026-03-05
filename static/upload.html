@@ -81,7 +81,8 @@ function poll(job_id, total_pages) {
     var cur = data.current_page || 0;
     if (cur > lastPage) {
       for (var i = lastPage + 1; i <= cur; i++) {
-        log.textContent += "Page " + i + "/" + total_pages + " done\n";
+        log.textContent += "Page " + i + "/" + total_pages + " | products saved: " + (data.total_products - lastProducts) + " | total: " + data.total_products + "\n";
+lastProducts = data.total_products;
       }
       lastPage = cur;
       log.scrollTop = 9999;
