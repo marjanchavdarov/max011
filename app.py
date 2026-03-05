@@ -295,27 +295,18 @@ def get_conversation(user):
         return []
 
 def save_conversation(phone, conversation, user_message, bot_reply):
-    # Keep last 30 minutes of conversation
-    now = datetime.now()
     conv = conversation or []
-    # Add new messages
-    conv.append({
-        "role": "user",
-        "content": user_message,
-        "time": now.strftime("%H:%M")
-    })
-    conv.append({
-        "role": "bot",
-        "content": bot_reply[:500],
-        "time": now.strftime("%H:%M")
-    })
-    # Keep only messages from last 30 minutes - use last 30 messages as proxy
+    conv.append({"role": "user", "content": user_message, "time": datetime.now().strftime("%H:%M")})
+    conv.append({"role": "bot", "content": bot_reply[:500], "time": datetime.now().strftime("%H:%M")})
     conv = conv[-30:]
-    result = update_user(phone, {
-        "conversation": json.dumps(conv, ensure_ascii=False),
-        "total_searches": (conversation.__len__() // 2) + 1,
-        "last_active": now.isoformat()
-    })
+    h = {**db_headers(), "Prefer": "return=minimal"}
+    r = requests.patch(
+        SUPABASE_URL + "/rest/v1/users?phone=eq." + phone,
+        headers=h,
+        json={"conversation": json.dumps(conv, ensure_ascii=False), "last_active": datetime.now().isoformat()},
+        timeout=10
+    )
+    print("save_conversation status: " + str(r.status_code))
     return conv
 
 def filter_products(message, active, upcoming):
