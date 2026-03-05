@@ -596,15 +596,16 @@ def test_db():
 
 @app.route("/test-patch")
 def test_patch():
+    from urllib.parse import quote
     phone = "whatsapp:+385915121910"
+    phone_encoded = quote(phone, safe='')
     payload = {"conversation": [{"role": "api_test", "content": "from python"}], "last_active": datetime.now().isoformat()}
     r = requests.patch(
-        SUPABASE_URL + "/rest/v1/users?phone=eq." + phone,
+        SUPABASE_URL + "/rest/v1/users?phone=eq." + phone_encoded,
         headers={**db_headers(), "Prefer": "return=representation"},
         json=payload,
         timeout=10
     )
     return jsonify({"status": r.status_code, "response": r.json()})
-
 if __name__ == "__main__":
     app.run(debug=True)
