@@ -7,6 +7,7 @@ import base64
 import threading
 import uuid
 from datetime import datetime, date, timedelta
+from urllib.parse import quote
 import re
 
 app = Flask(__name__, static_folder="static")
@@ -47,6 +48,7 @@ def upload():
 
     fd = f.read()
     fn = f.filename
+    cat_name = fn.replace(".pdf", "")
 
     try:
         import fitz
@@ -60,29 +62,32 @@ def upload():
     except Exception as e:
         return jsonify({"error": "Could not read PDF: " + str(e)}), 500
 
+    # Resume or new job
     resume_job_id = request.form.get("resume_job_id", "").strip()
-if resume_job_id:
-    existing = requests.get(SUPABASE_URL + "/rest/v1/jobs?id=eq." + resume_job_id, headers=db_headers())
-    if existing.status_code == 200 and existing.json():
-        job = existing.json()[0]
-        job_id = resume_job_id
-        start_page = job.get("current_page", 0)
-        total_products_so_far = job.get("total_products", 0)
+    if resume_job_id:
+        existing = requests.get(SUPABASE_URL + "/rest/v1/jobs?id=eq." + resume_job_id, headers=db_headers())
+        if existing.status_code == 200 and existing.json():
+            job = existing.json()[0]
+            job_id = resume_job_id
+            start_page = job.get("current_page", 0)
+            total_products_so_far = job.get("total_products", 0)
+            # Update status back to processing
+            requests.patch(
+                SUPABASE_URL + "/rest/v1/jobs?id=eq." + job_id,
+                headers={**db_headers(), "Prefer": "return=minimal"},
+                json={"status": "processing"}
+            )
+        else:
+            return jsonify({"error": "Job ID not found"}), 400
     else:
         job_id = str(uuid.uuid4())[:8]
         start_page = 0
         total_products_so_far = 0
-else:
-    job_id = str(uuid.uuid4())[:8]
-    start_page = 0
-    total_products_so_far = 0
-    cat_name = fn.replace(".pdf", "")
-
-    requests.post(
-        SUPABASE_URL + "/rest/v1/jobs",
-        headers={**db_headers(), "Prefer": "return=minimal"},
-        json={"id": job_id, "store": sn, "catalogue_name": cat_name, "valid_from": vf, "valid_until": vu, "total_pages": total_pages, "current_page": 0, "total_products": 0, "status": "processing"}
-    )
+        requests.post(
+            SUPABASE_URL + "/rest/v1/jobs",
+            headers={**db_headers(), "Prefer": "return=minimal"},
+            json={"id": job_id, "store": sn, "catalogue_name": cat_name, "valid_from": vf, "valid_until": vu, "total_pages": total_pages, "current_page": 0, "total_products": 0, "status": "processing"}
+        )
 
     def process():
         try:
@@ -106,13 +111,11 @@ else:
                         cat_fp = (cat_fp + " " + fine_print) if cat_fp else fine_print
                     saved = save_products(products, sn, i+1, page_url, cat_name, vf, vu)
                     total_products += saved
-
                     requests.patch(
                         SUPABASE_URL + "/rest/v1/jobs?id=eq." + job_id,
                         headers={**db_headers(), "Prefer": "return=minimal"},
                         json={"current_page": i + 1, "total_products": total_products, "fine_print": cat_fp}
                     )
-
                 except Exception as e:
                     print("Page " + str(i+1) + " error: " + str(e))
                     continue
@@ -120,13 +123,11 @@ else:
             doc.close()
             os.remove(tmp)
             save_catalogue(sn, cat_name, vf, vu, cat_fp, total_pages, total_products)
-
             requests.patch(
                 SUPABASE_URL + "/rest/v1/jobs?id=eq." + job_id,
                 headers={**db_headers(), "Prefer": "return=minimal"},
                 json={"status": "done", "current_page": total_pages, "total_products": total_products}
             )
-
         except Exception as e:
             requests.patch(
                 SUPABASE_URL + "/rest/v1/jobs?id=eq." + job_id,
@@ -139,7 +140,7 @@ else:
     t.daemon = True
     t.start()
 
-    return jsonify({"job_id": job_id, "total_pages": total_pages})
+    return jsonify({"job_id": job_id, "total_pages": total_pages, "start_page": start_page})
 
 @app.route("/status/<job_id>")
 def status(job_id):
@@ -283,14 +284,13 @@ def get_products():
     return (active.json() if active.status_code == 200 else [], upcoming.json() if upcoming.status_code == 200 else [], fine_prints)
 
 def get_or_create_user(phone):
+    phone_encoded = quote(phone, safe='')
     h = db_headers()
-    r = requests.get(SUPABASE_URL + "/rest/v1/users?phone=eq." + phone, headers=h)
+    r = requests.get(SUPABASE_URL + "/rest/v1/users?phone=eq." + phone_encoded, headers=h)
     if r.status_code == 200 and r.json():
         return r.json()[0]
     requests.post(SUPABASE_URL + "/rest/v1/users", headers={**h, "Prefer": "return=minimal"}, json={"phone": phone, "total_searches": 0})
     return {"phone": phone, "total_searches": 0}
-
-from urllib.parse import quote
 
 def update_user(phone, updates):
     phone_encoded = quote(phone, safe='')
@@ -303,17 +303,8 @@ def update_user(phone, updates):
     if r.status_code not in [200, 201, 204]:
         print("update_user failed: " + str(r.status_code) + " " + r.text[:200])
 
-def get_or_create_user(phone):
-    from urllib.parse import quote
-    phone_encoded = quote(phone, safe='')
-    h = db_headers()
-    r = requests.get(SUPABASE_URL + "/rest/v1/users?phone=eq." + phone_encoded, headers=h)
-    if r.status_code == 200 and r.json():
-        return r.json()[0]
-    requests.post(SUPABASE_URL + "/rest/v1/users", headers={**h, "Prefer": "return=minimal"}, json={"phone": phone, "total_searches": 0})
-    return {"phone": phone, "total_searches": 0}
 def get_conversation(user):
-    conv = user.get("conversation") or "[]"
+    conv = user.get("conversation") or []
     if isinstance(conv, list):
         return conv
     try:
@@ -326,10 +317,10 @@ def save_conversation(phone, conversation, user_message, bot_reply):
     conv.append({"role": "user", "content": user_message, "time": datetime.now().strftime("%H:%M")})
     conv.append({"role": "bot", "content": bot_reply[:500], "time": datetime.now().strftime("%H:%M")})
     conv = conv[-30:]
-    h = {**db_headers(), "Prefer": "return=minimal"}
+    phone_encoded = quote(phone, safe='')
     r = requests.patch(
-        SUPABASE_URL + "/rest/v1/users?phone=eq." + phone,
-        headers=h,
+        SUPABASE_URL + "/rest/v1/users?phone=eq." + phone_encoded,
+        headers={**db_headers(), "Prefer": "return=minimal"},
         json={"conversation": conv, "last_active": datetime.now().isoformat()},
         timeout=10
     )
@@ -340,7 +331,7 @@ def filter_products(message, active, upcoming):
     translations = {
         "mlijeko": "milk", "mlijeka": "milk", "mlijecni": "dairy", "mlijecnih": "dairy",
         "meso": "meat", "mesa": "meat", "mesni": "meat", "mesnih": "meat",
-        "pile": "chicken", "piletina": "chicken", "pileca": "chicken", "pileći": "chicken",
+        "pile": "chicken", "piletina": "chicken", "pileca": "chicken",
         "kruh": "bread", "kruha": "bread", "pecivo": "bakery",
         "voce": "fruit", "voca": "fruit", "povrce": "vegetables", "povrca": "vegetables",
         "jogurt": "yogurt", "jogurta": "yogurt",
@@ -352,10 +343,9 @@ def filter_products(message, active, upcoming):
         "kava": "coffee", "kafe": "coffee", "caj": "tea",
         "riba": "fish", "ribe": "fish",
         "svinjetina": "pork", "svinjski": "pork", "svinjska": "pork",
-        "govedina": "beef", "goveđi": "beef",
-        "detergent": "detergent", "sapun": "soap", "samponi": "shampoo",
-        "ljubimci": "pets", "pas": "dog", "macka": "cat",
-        "jaja": "eggs", "jaje": "eggs", "jajima": "eggs"
+        "govedina": "beef", "jaja": "eggs", "jaje": "eggs",
+        "detergent": "detergent", "sapun": "soap",
+        "ljubimci": "pets", "pas": "dog", "macka": "cat"
     }
     msg_lower = message.lower()
     for cro, eng in translations.items():
@@ -378,10 +368,8 @@ def filter_products(message, active, upcoming):
 
     filtered_active = [p for p in active if matches(p)]
     filtered_upcoming = [p for p in upcoming if matches(p)]
-
     if not filtered_active and not filtered_upcoming:
         return active[:50], upcoming[:20]
-
     return filtered_active[:50], filtered_upcoming[:20]
 
 def format_products(active, upcoming, fine_prints):
@@ -412,12 +400,10 @@ def format_products(active, upcoming, fine_prints):
     return result or "No matching products found."
 
 def get_page_image_url(store, page_num, all_products):
-    # First try matching store + page number
     for p in all_products:
         if (p.get("store") or "").lower() == store.lower() and p.get("page_number") == page_num:
             if p.get("page_image_url"):
                 return p.get("page_image_url")
-    # Fallback - just page number
     for p in all_products:
         if p.get("page_number") == page_num and p.get("page_image_url"):
             return p.get("page_image_url")
@@ -425,12 +411,10 @@ def get_page_image_url(store, page_num, all_products):
 
 def get_adjacent_page(current_url, direction, all_products):
     if not current_url:
-        print("get_adjacent_page: no current_url")
         return None
     try:
         parts = current_url.rsplit("_page_", 1)
         if len(parts) != 2:
-            print("get_adjacent_page: cant parse URL: " + current_url)
             return None
         prefix = parts[0]
         current_num = int(parts[1].replace(".jpg", ""))
@@ -439,7 +423,6 @@ def get_adjacent_page(current_url, direction, all_products):
             return None
         new_url = prefix + "_page_" + str(new_num).zfill(3) + ".jpg"
         print("get_adjacent_page: looking for " + new_url)
-        # Check in all products
         for p in all_products:
             if p.get("page_image_url") == new_url:
                 print("get_adjacent_page: found!")
@@ -465,25 +448,20 @@ def build_conversation_context(conversation):
 def ask_gemini(message, products, user, conversation):
     url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + GEMINI_API_KEY
     today = date.today().strftime("%d.%m.%Y.")
-
     user_ctx = ""
     if user.get("user_summary"):
         user_ctx = "User profile: " + user.get("user_summary") + "\n"
-
     conv_ctx = build_conversation_context(conversation)
-
     prompt = (
         "You are katalog.ai - a smart friendly shopping assistant. Today is " + today + ". "
-        + user_ctx
-        + conv_ctx
+        + user_ctx + conv_ctx
         + "\nPRODUCT DATABASE (English, with page numbers and image URLs):\n" + products + "\n\n"
         "INSTRUCTIONS:\n"
         "- Max 4096 characters total. Be concise.\n"
         "- Respond in the same language the user writes in. Translate product names naturally.\n"
         "- When listing products always mention which PAGE they are on.\n"
-        "- After listing products always end with page numbers summary like: Str. 1, 3, 7 — odgovori brojem za pregled 📖\n"
+        "- After listing products always end with page numbers like: Str. 1, 3, 7 — odgovori brojem za pregled 📖\n"
         "- You can split into 2 messages using [MSG2] tag when it improves readability.\n"
-        "- Encourage visual browsing - pages are available!\n"
         "- On first greeting introduce yourself and tell user: type a page number to see it, + next page, - previous page.\n"
         "- Use conversation history to remember context - never ask what was already answered.\n"
         "- Be warm and natural. No markdown, no asterisks. Emojis welcome.\n"
@@ -508,9 +486,7 @@ def webhook():
     conversation = get_conversation(user)
     resp = MessagingResponse()
 
-    # ── Navigation: + or - ──
     if message in ["+", ">"]:
-        print("Nav next, last_page_url: " + str(user.get("last_page_url")))
         adj = get_adjacent_page(user.get("last_page_url"), 1, all_products)
         if adj:
             msg = resp.message("➡️  ( + sljedeća / - prethodna )")
@@ -521,7 +497,6 @@ def webhook():
         return str(resp)
 
     if message in ["-", "<"]:
-        print("Nav prev, last_page_url: " + str(user.get("last_page_url")))
         adj = get_adjacent_page(user.get("last_page_url"), -1, all_products)
         if adj:
             msg = resp.message("⬅️  ( + sljedeća / - prethodna )")
@@ -531,7 +506,6 @@ def webhook():
             resp.message("Nema prethodne stranice. Pošalji + za sljedeću.")
         return str(resp)
 
-    # ── Page number request ──
     waiting = user.get("waiting_for_page") or False
     available = user.get("available_pages") or []
     if isinstance(available, str):
@@ -561,78 +535,36 @@ def webhook():
             if img_url:
                 msg = resp.message("Str. " + str(pg) + " 📖  ( + sljedeća / - prethodna )")
                 msg.media(img_url)
-                update_user(phone, {
-                    "last_page_url": img_url,
-                    "waiting_for_page": False
-                })
+                update_user(phone, {"last_page_url": img_url, "waiting_for_page": False})
                 sent_any = True
         if not sent_any:
             resp.message("Stranica nije pronađena. Pokušaj drugi broj.")
         return str(resp)
 
-    # ── Normal message ──
     filtered_active, filtered_upcoming = filter_products(message, active, upcoming)
-
     page_nums = sorted(set([p.get("page_number") for p in filtered_active + filtered_upcoming if p.get("page_number")]))
     stores = list(set([p.get("store") for p in filtered_active + filtered_upcoming if p.get("store")]))
     main_store = stores[0] if len(stores) == 1 else ""
-
     products_ctx = format_products(filtered_active, filtered_upcoming, fine_prints)
     reply = ask_gemini(message, products_ctx, user, conversation)
-
-    # Save conversation immediately and reliably
     save_conversation(phone, conversation, message, reply)
 
-    # Save page context
     if page_nums:
-        update_user(phone, {
-            "waiting_for_page": True,
-            "available_pages": json.dumps(page_nums),
-            "last_catalogue_store": main_store
-        })
+        update_user(phone, {"waiting_for_page": True, "available_pages": page_nums, "last_catalogue_store": main_store})
     else:
         update_user(phone, {"waiting_for_page": False})
 
-    # Split into 2 messages if [MSG2] present
     parts = reply.split("[MSG2]")
     msg1 = parts[0].strip()
     msg2 = parts[1].strip() if len(parts) > 1 else ""
-
     resp.message(msg1)
     if msg2:
         resp.message(msg2)
-
     return str(resp)
 
 @app.route("/", methods=["GET"])
 def home():
     return "katalog.ai is running!"
 
-@app.route("/test-db")
-@app.route("/test-db")
-def test_db():
-    phone = "whatsapp:+385915121910"
-    h = {**db_headers(), "Prefer": "return=minimal"}
-    r = requests.patch(
-        SUPABASE_URL + "/rest/v1/users?phone=eq." + phone,
-        headers=h,
-        json={"conversation": "[{\"role\":\"test\"}]", "last_active": datetime.now().isoformat()},
-        timeout=10
-    )
-    return jsonify({"status": r.status_code, "response": r.text})
-
-@app.route("/test-patch")
-def test_patch():
-    from urllib.parse import quote
-    phone = "whatsapp:+385915121910"
-    phone_encoded = quote(phone, safe='')
-    payload = {"conversation": [{"role": "api_test", "content": "from python"}], "last_active": datetime.now().isoformat()}
-    r = requests.patch(
-        SUPABASE_URL + "/rest/v1/users?phone=eq." + phone_encoded,
-        headers={**db_headers(), "Prefer": "return=representation"},
-        json=payload,
-        timeout=10
-    )
-    return jsonify({"status": r.status_code, "response": r.json()})
 if __name__ == "__main__":
     app.run(debug=True)
