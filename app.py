@@ -275,9 +275,12 @@ def get_or_create_user(phone):
     requests.post(SUPABASE_URL + "/rest/v1/users", headers={**h, "Prefer": "return=minimal"}, json={"phone": phone, "total_searches": 0})
     return {"phone": phone, "total_searches": 0}
 
+from urllib.parse import quote
+
 def update_user(phone, updates):
+    phone_encoded = quote(phone, safe='')
     r = requests.patch(
-        SUPABASE_URL + "/rest/v1/users?phone=eq." + phone,
+        SUPABASE_URL + "/rest/v1/users?phone=eq." + phone_encoded,
         headers={**db_headers(), "Prefer": "return=minimal"},
         json=updates,
         timeout=10
@@ -285,6 +288,15 @@ def update_user(phone, updates):
     if r.status_code not in [200, 201, 204]:
         print("update_user failed: " + str(r.status_code) + " " + r.text[:200])
 
+def get_or_create_user(phone):
+    from urllib.parse import quote
+    phone_encoded = quote(phone, safe='')
+    h = db_headers()
+    r = requests.get(SUPABASE_URL + "/rest/v1/users?phone=eq." + phone_encoded, headers=h)
+    if r.status_code == 200 and r.json():
+        return r.json()[0]
+    requests.post(SUPABASE_URL + "/rest/v1/users", headers={**h, "Prefer": "return=minimal"}, json={"phone": phone, "total_searches": 0})
+    return {"phone": phone, "total_searches": 0}
 def get_conversation(user):
     conv = user.get("conversation") or "[]"
     if isinstance(conv, list):
