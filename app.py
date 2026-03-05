@@ -303,7 +303,7 @@ def save_conversation(phone, conversation, user_message, bot_reply):
     r = requests.patch(
         SUPABASE_URL + "/rest/v1/users?phone=eq." + phone,
         headers=h,
-        json={"conversation": json.dumps(conv, ensure_ascii=False), "last_active": datetime.now().isoformat()},
+        json={"conversation": conv, "last_active": datetime.now().isoformat()},
         timeout=10
     )
     print("save_conversation status: " + str(r.status_code))
