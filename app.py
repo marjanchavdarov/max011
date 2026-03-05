@@ -396,11 +396,61 @@ def find_page_image(message, products):
                     return p.get("page_image_url")
     return None
 
+def get_adjacent_page(current_url, direction):
+    if not current_url:
+        return None
+    try:
+        # Extract page number from URL like store_cat_page_001.jpg
+        parts = current_url.rsplit("_page_", 1)
+        if len(parts) != 2:
+            return None
+        prefix = parts[0]
+        page_part = parts[1]  # e.g. "001.jpg"
+        current_num = int(page_part.replace(".jpg", ""))
+        new_num = current_num + direction
+        if new_num < 1:
+            return None
+        new_url = prefix + "_page_" + str(new_num).zfill(3) + ".jpg"
+        # Check if this page image exists in Supabase Storage
+        h = {"apikey": SUPABASE_KEY, "Authorization": "Bearer " + SUPABASE_KEY}
+        filename = new_url.split("/katalog-images/")[-1]
+        r = requests.head(SUPABASE_URL + "/storage/v1/object/public/katalog-images/" + filename, headers=h, timeout=5)
+        if r.status_code == 200:
+            return new_url
+        return None
+    except Exception as e:
+        print("Adjacent page error: " + str(e))
+        return None
+
 @app.route("/webhook", methods=["POST"])
 def webhook():
     phone = request.form.get("From", "")
     message = request.form.get("Body", "").strip()
     user = get_or_create_user(phone)
+
+    # Handle page navigation shortcuts
+    if message in ["+", ">"]:
+        next_url = get_adjacent_page(user.get("last_page_url"), 1)
+        resp = MessagingResponse()
+        if next_url:
+            msg = resp.message("Next page ➡️")
+            msg.media(next_url)
+            update_user(phone, {"last_page_url": next_url})
+        else:
+            resp.message("No next page found.")
+        return str(resp)
+
+    if message in ["-", "<"]:
+        prev_url = get_adjacent_page(user.get("last_page_url"), -1)
+        resp = MessagingResponse()
+        if prev_url:
+            msg = resp.message("Previous page ⬅️")
+            msg.media(prev_url)
+            update_user(phone, {"last_page_url": prev_url})
+        else:
+            resp.message("No previous page found.")
+        return str(resp)
+
     active, upcoming, fine_prints = get_products()
     filtered_active, filtered_upcoming = filter_products(message, active, upcoming)
     products_ctx = format_products(filtered_active, filtered_upcoming, fine_prints)
@@ -413,10 +463,15 @@ def webhook():
         except:
             conversation = []
     update_user_summary(phone, user.get("user_summary"), conversation, message, reply)
+
+    # Save last page shown for navigation
+    page_updates = {"last_page_url": page_image} if page_image else {}
+
     resp = MessagingResponse()
     msg = resp.message(reply)
     if page_image:
         msg.media(page_image)
+        update_user(phone, {**page_updates})
     return str(resp)
 
 @app.route("/", methods=["GET"])
@@ -425,3 +480,4 @@ def home():
 
 if __name__ == "__main__":
     app.run(debug=True)
+# This line intentionally left blank - navigation handled in webhook
